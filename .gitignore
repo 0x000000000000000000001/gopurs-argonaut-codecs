@@ -1,0 +1,5 @@
+.purmeta/
+.spago/
+output/
+output.bak/
+.DS_Store
