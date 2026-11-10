@@ -4,6 +4,7 @@ import Prelude
 
 import Data.Argonaut.Core (Json, caseJsonBoolean, caseJsonNull, caseJsonNumber, caseJsonString, isNull, toArray, toObject, toString, fromString)
 import Data.Argonaut.Decode.Error (JsonDecodeError(..))
+import Data.Argonaut.Decode.Internal.Record (decodeFieldFast, getFieldImpl, getFieldOptionalImpl, getFieldOptionalNullableImpl)
 import Data.Array as Arr
 import Data.Array.NonEmpty (NonEmptyArray)
 import Data.Array.NonEmpty as NEA
@@ -165,7 +166,9 @@ decodeArray
   -> Either JsonDecodeError (Array a)
 decodeArray decoder =
   lmap (Named "Array")
-    <<< traverseWithIndex (\i -> lmap (AtIndex i) <<< decoder)
+    <<< traverseWithIndex (\i json -> case decoder json of
+          Left err -> Left (AtIndex i err)
+          Right value -> Right value)
     <=< decodeJArray
 
 decodeList
@@ -213,11 +216,12 @@ getField
   -> FO.Object Json
   -> String
   -> Either JsonDecodeError a
-getField decoder obj str =
-  maybe
-    (Left $ AtKey str MissingValue)
-    (lmap (AtKey str) <<< decoder)
-    (FO.lookup str obj)
+getField = getFieldImpl \decoder obj str ->
+  case FO.lookup str obj of
+    Nothing -> Left $ AtKey str MissingValue
+    Just json -> case decodeFieldFast decoder json of
+      Left err -> Left (AtKey str err)
+      Right value -> Right value
 
 getFieldOptional
   :: forall a
@@ -225,10 +229,14 @@ getFieldOptional
   -> FO.Object Json
   -> String
   -> Either JsonDecodeError (Maybe a)
-getFieldOptional decoder obj str =
-  maybe (pure Nothing) (map Just <<< decode) (FO.lookup str obj)
+getFieldOptional = getFieldOptionalImpl fallback
   where
-  decode = lmap (AtKey str) <<< decoder
+  fallback decoder obj str =
+    maybe (pure Nothing) decode (FO.lookup str obj)
+    where
+    decode json = case decodeFieldFast decoder json of
+      Left err -> Left (AtKey str err)
+      Right value -> Right (Just value)
 
 getFieldOptional'
   :: forall a
@@ -236,11 +244,14 @@ getFieldOptional'
   -> FO.Object Json
   -> String
   -> Either JsonDecodeError (Maybe a)
-getFieldOptional' decoder obj str =
-  maybe (pure Nothing) decode (FO.lookup str obj)
+getFieldOptional' = getFieldOptionalNullableImpl fallback
   where
-  decode json =
-    if isNull json then
-      pure Nothing
-    else
-      Just <$> (lmap (AtKey str) <<< decoder) json
+  fallback decoder obj str =
+    maybe (pure Nothing) decode (FO.lookup str obj)
+    where
+    decode json =
+      if isNull json then
+        pure Nothing
+      else case decodeFieldFast decoder json of
+        Left err -> Left (AtKey str err)
+        Right value -> Right (Just value)

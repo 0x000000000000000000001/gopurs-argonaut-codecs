@@ -1,9 +1,5 @@
-.*
-!.gitignore
-!.github
-!.editorconfig
-!.tidyrc.json
-
-output
-generated-docs
-bower_components
+.purmeta/
+.spago/
+output/
+output.bak/
+.DS_Store
